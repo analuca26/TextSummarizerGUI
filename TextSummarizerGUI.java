@@ -11,38 +11,43 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
 
 public class TextSummarizerGUI extends JFrame {
     private JTextArea inputArea, outputArea;
     private JButton summarizeButton;
-    
+    // Stores the selected key sentences for later highlighting.
+    private Set<String> lastKeySentences = new LinkedHashSet<>();
+
     public TextSummarizerGUI() {
         setTitle("Text Summarizer");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
         
-        // Create a main panel with vertical BoxLayout.
+        // Create a main panel with a vertical layout.
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
         
-        // Create the input text area with a scroll pane and set a larger preferred size.
+        // Create the input area with scroll pane and set a preferred size.
         inputArea = new JTextArea();
         JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBorder(BorderFactory.createTitledBorder("Input Text"));
         inputScroll.setPreferredSize(new Dimension(600, 200));
         
-        // Create the output text area for key sentences (read-only) with a scroll pane and set a larger preferred size.
+        // Create the output area for key sentences with scroll pane and set a preferred size.
         outputArea = new JTextArea();
         outputArea.setEditable(false);
         JScrollPane outputScroll = new JScrollPane(outputArea);
         outputScroll.setBorder(BorderFactory.createTitledBorder("Key Sentences"));
         outputScroll.setPreferredSize(new Dimension(600, 200));
         
-        // Create the summarize button and place it in its own panel.
+        // Create the summarize button and add it to its own panel.
         summarizeButton = new JButton("Summarize");
         JPanel buttonPanel = new JPanel();
         buttonPanel.add(summarizeButton);
-        // Restrict the button panel to the size of the button.
+        // Limit the button panel size to that of the button.
         Dimension buttonSize = summarizeButton.getPreferredSize();
         buttonPanel.setMaximumSize(new Dimension(buttonSize.width, buttonSize.height));
         
@@ -54,41 +59,43 @@ public class TextSummarizerGUI extends JFrame {
         // Add the main panel to the frame.
         add(mainPanel);
         
-        // Set up the action listener to perform summarization when the button is clicked.
+        // When the button is clicked, perform summarization and highlight key sentences.
         summarizeButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 String text = inputArea.getText();
-                // Here we request the top 15 frequent words to drive the selection.
                 String summary = summarizeText(text, 15);
                 outputArea.setText(summary);
+                highlightKeySentences(lastKeySentences);
             }
         });
         
-        pack(); // Adjust the frame to the preferred sizes.
-        setSize(600, 500); // Optionally, set an overall size.
+        pack(); // Adjusts frame size based on preferred sizes.
+        setSize(600, 500); // Set overall window size.
     }
     
     /**
-     * This method implements the summarization algorithm.
-     * It divides the text into sentences, removes stop words,
-     * counts word frequencies, selects the top frequent words, and 
-     * then picks the best sentence for each top word.
-     * @param text The input text to summarize.
-     * @param numTopWords The number of top frequent words to consider (e.g., 15).
-     * @return A bullet-point list of key sentences.
+     * Implements the summarization algorithm.
+     * Steps:
+     *  1. Split the text into sentences.
+     *  2. Clean the text (convert to lowercase, remove punctuation).
+     *  3. Remove uninformative words (stop words) and count word frequencies.
+     *  4. Select the top frequent words.
+     *  5. For each top word, choose the sentence with the highest cumulative frequency score.
+     *  6. Return these sentences as a bullet-point list.
+     *
+     * Also stores the selected sentences in lastKeySentences for highlighting.
      */
     private String summarizeText(String text, int numTopWords) {
         if (text == null || text.isEmpty()) return "";
         
-        // Step 1: Divide the text into sentences.
+        // 1. Split text into sentences.
         String[] sentences = text.split("(?<=[.!?])\\s+");
         
-        // Step 2: Clean the text for word frequency analysis.
-        // Convert to lowercase and remove punctuation (keeping only letters and whitespace).
+        // 2. Clean the text: convert to lowercase and remove punctuation.
         String cleanedText = text.toLowerCase().replaceAll("[^a-zA-Z\\s]", " ");
         String[] words = cleanedText.split("\\s+");
         
-        // Step 3: Define a set of stop words.
+        // 3. Define stop words (common words that carry little meaning).
         Set<String> stopWords = new HashSet<>(Arrays.asList(
             "the", "and", "is", "in", "at", "of", "a", "an", "to", "it",
             "for", "on", "with", "as", "by", "this", "that", "from", "i", 
@@ -96,7 +103,7 @@ public class TextSummarizerGUI extends JFrame {
             "was", "were", "be", "been", "being", "am", "do", "does", "did"
         ));
         
-        // Step 4: Count frequency of non-stop words.
+        // 4. Count frequencies of non-stop words.
         Map<String, Integer> wordFreq = new HashMap<>();
         for (String word : words) {
             word = word.trim();
@@ -104,8 +111,7 @@ public class TextSummarizerGUI extends JFrame {
             wordFreq.put(word, wordFreq.getOrDefault(word, 0) + 1);
         }
         
-        // Step 5: Get the top frequent words.
-        // We convert the word frequency map to a list of entries and sort it in descending order.
+        // 5. Get the top frequent words.
         List<Map.Entry<String, Integer>> freqList = new ArrayList<>(wordFreq.entrySet());
         Collections.sort(freqList, new Comparator<Map.Entry<String, Integer>>() {
             public int compare(Map.Entry<String, Integer> e1, Map.Entry<String, Integer> e2) {
@@ -118,17 +124,16 @@ public class TextSummarizerGUI extends JFrame {
             topWords.add(freqList.get(i).getKey());
         }
         
-        // Step 6: For each top word, select the best sentence in which it appears.
-        // "Best" is defined as the sentence with the highest sum of frequencies of its non-stop words.
+        // 6. For each top word, select the best sentence where it appears.
         Set<String> selectedSentences = new LinkedHashSet<>();
         for (String topWord : topWords) {
             double bestScore = 0;
             String bestSentence = null;
             for (String sentence : sentences) {
-                // Clean each sentence for scoring purposes.
+                // Clean each sentence.
                 String cleanedSentence = sentence.toLowerCase().replaceAll("[^a-zA-Z\\s]", " ");
                 if (!cleanedSentence.contains(topWord)) continue;
-                // Calculate sentence score by summing word frequencies.
+                // Calculate sentence score by summing frequencies.
                 double score = 0;
                 String[] sentenceWords = cleanedSentence.split("\\s+");
                 for (String w : sentenceWords) {
@@ -146,13 +151,40 @@ public class TextSummarizerGUI extends JFrame {
             }
         }
         
-        // Step 7: Build the bullet list from the selected sentences.
+        // Store selected sentences for highlighting.
+        lastKeySentences.clear();
+        lastKeySentences.addAll(selectedSentences);
+        
+        // 7. Build the bullet-point list.
         StringBuilder bulletSummary = new StringBuilder();
         for (String sentence : selectedSentences) {
             bulletSummary.append("• ").append(sentence).append("\n");
         }
         
         return bulletSummary.toString().trim();
+    }
+    
+    /**
+     * Highlights the key sentences in the input text area using a purple color.
+     */
+    private void highlightKeySentences(Set<String> keySentences) {
+        Highlighter highlighter = inputArea.getHighlighter();
+        Highlighter.HighlightPainter painter = new DefaultHighlighter.DefaultHighlightPainter(new Color(128, 0, 128)); // Purple
+        // Remove existing highlights.
+        highlighter.removeAllHighlights();
+        String inputText = inputArea.getText();
+        for (String sentence : keySentences) {
+            if (sentence.isEmpty()) continue;
+            int index = inputText.indexOf(sentence);
+            while (index >= 0) {
+                try {
+                    highlighter.addHighlight(index, index + sentence.length(), painter);
+                } catch (BadLocationException ex) {
+                    ex.printStackTrace();
+                }
+                index = inputText.indexOf(sentence, index + sentence.length());
+            }
+        }
     }
     
     public static void main(String[] args) {
